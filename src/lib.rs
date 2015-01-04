@@ -27,24 +27,24 @@ fn it_works() {
 		cfg.insecure_noverifycert();
 		cfg.insecure_noverifyhost();
 
-		let client = tls::TLS::client().unwrap();
+		let mut client = tls::TLS::client().unwrap();
 		client.configure(&cfg).unwrap();
 
 		client.connect("127.0.0.1", "4433").unwrap();
 
-		let msg = "hello from client".to_string().into_bytes();
-		client.write(&msg).unwrap();
+		client.write(b"hello from client").unwrap();
 
-		let buf = client.read(1024).unwrap();
-		println!("client got: {}", std::str::from_utf8(buf.as_slice()));
+		let buf:Vec<u8> = client.read_exact(17).unwrap();
+		assert_eq!(buf, b"hello from server".to_vec());
 	}).detach();
 
 	let stream = listener.accept().unwrap();
-	let conn = server.accept_socket(stream.as_raw_fd()).unwrap();
+	let mut conn = server.accept_socket(stream.as_raw_fd()).unwrap();
 
-	let msg = "hello from server".to_string().into_bytes();
-	conn.write(&msg).unwrap();
+	conn.write(b"hello from server").unwrap();
 
-	let buf = conn.read(1024).unwrap();
-	println!("server got: {}", std::str::from_utf8(buf.as_slice()));
+	let buf = conn.read_exact(17).unwrap();
+	assert_eq!(buf, b"hello from client".to_vec());
+
+	conn.close().unwrap();
 }

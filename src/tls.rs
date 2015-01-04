@@ -8,6 +8,8 @@ use std;
 use std::c_str::ToCStr;
 use std::sync::{Once, ONCE_INIT};
 
+use std::io::{IoResult,IoError,IoErrorKind};
+
 static INIT: Once = ONCE_INIT;
 
 pub fn tls_init() {
@@ -237,28 +239,48 @@ impl TLS {
 			}
 		})
 	}
+	pub fn close(&self) -> Result<(), &'static str> {
+		let res = unsafe { bindings::tls_close(self.ptr) };
 
-	pub fn read(&self, buflen: libc::c_int) -> Result<Vec<u8>, &'static str> {
-		let mut buf: Vec<u8> = Vec::with_capacity(buflen as uint);
+		if res == 0 {
+			Ok(())
+		} else {
+			Err(self.get_error())
+		}
+	}
+}
+
+impl Reader for TLS {
+	fn read(&mut self, buf: &mut [u8]) -> IoResult<uint> {
 		let mut outlen = 0 as libc::size_t;
 
 		let res = unsafe {
 			bindings::tls_read(self.ptr, buf.as_mut_ptr() as *mut libc::c_void,
-				buf.capacity() as libc::c_int, &mut outlen)
+				buf.len() as libc::c_int, &mut outlen)
 		};
 		
 		match res {
 			0 => {
-				unsafe { buf.set_len(outlen as uint) };
-				Ok(buf)
+				Ok(outlen as uint)
 			},
-			bindings::TLS_READ_AGAIN => Err("READ_AGAIN"),
-			bindings::TLS_WRITE_AGAIN => Err("WRITE_AGAIN"),
-			_ => Err(self.get_error()),
+			bindings::TLS_READ_AGAIN => Ok(0),
+			bindings::TLS_WRITE_AGAIN => Ok(0),
+			6 /*SSL_ERROR_ZERO_RETURN*/ => Err(IoError {
+				kind: IoErrorKind::EndOfFile,
+				desc: self.get_error(),
+				detail: None,
+			}),
+			_ => Err(IoError {
+				kind: IoErrorKind::OtherIoError,
+				desc: self.get_error(),
+				detail: None,
+			}),
 		}
 	}
+}
 
-	pub fn write(&self, buf: &Vec<u8>) -> Result<int, &'static str> {
+impl Writer for TLS {
+	fn write(&mut self, buf: &[u8]) -> IoResult<()> {
 		let mut outlen = 0 as libc::size_t;
 
 		let res = unsafe {
@@ -267,20 +289,22 @@ impl TLS {
 		};
 		
 		match res {
-			0 => Ok(outlen as int),
-			bindings::TLS_READ_AGAIN => Err("READ_AGAIN"),
-			bindings::TLS_WRITE_AGAIN => Err("WRITE_AGAIN"),
-			_ => Err(self.get_error()),
-		}
-	}
-
-	pub fn close(&self) -> Result<(), &'static str> {
-		let res = unsafe { bindings::tls_close(self.ptr) };
-
-		if res == 0 {
-			Ok(())
-		} else {
-			Err(self.get_error())
+			0 => Ok(()),
+			bindings::TLS_READ_AGAIN => Err(IoError {
+				kind: IoErrorKind::EndOfFile,
+				desc: "READ_AGAIN",
+				detail: None,
+			}),
+			bindings::TLS_WRITE_AGAIN => Err(IoError {
+				kind: IoErrorKind::EndOfFile,
+				desc: "WRITE_AGAIN",
+				detail: None,
+			}),
+			_ => Err(IoError {
+				kind: IoErrorKind::OtherIoError,
+				desc: self.get_error(),
+				detail: None,
+			}),
 		}
 	}
 }
