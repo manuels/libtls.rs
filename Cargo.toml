@@ -1,6 +1,6 @@
 [package]
 name = "tls"
-version = "0.0.2"
+version = "0.0.3"
 description = "Bindings for libressl's libtls"
 homepage = "https://github.com/manuels/libtls.rs"
 license = " GPL-2.0"
